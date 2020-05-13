@@ -1,5 +1,5 @@
 ## Credits
-* **PistonMiner** for their work on the TTYD scripting disassembly, the initial code for the rel framework, and the elf2rel, gcipack, and rellink utilities. (GitHub repo for these tools [here](https://github.com/PistonMiner/ttyd-tools).)
+* **PistonMiner** for their work on the initial code for the rel framework, and the elf2rel, gcipack, and rellink utilities. (GitHub repo for these tools [here](https://github.com/PistonMiner/ttyd-tools).)
 
 ## Overview
 REL Loader for Super Mario Sunshine. Ported from the REL Loader for Paper Mario: The Thousand-Year Door.
