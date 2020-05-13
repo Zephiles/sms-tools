@@ -1,0 +1,20 @@
+// __mem.c
+80003100:memset
+
+// JKRExpHeap.cpp
+802C138C:alloc_JKRExpHeap
+802C1B14:free_JKRExpHeap
+
+// runtime.c
+803382F8:__udivdi3
+803383E4:__divdi3
+8033851C:__umoddi3
+
+// OSCache.c
+8034368C:DCFlushRange
+80343754:ICInvalidateRange
+
+// JKRHeap.cpp
+// data
+8040E290:sSystemHeap
+8040E298:sRootHeap
