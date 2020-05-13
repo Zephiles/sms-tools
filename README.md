@@ -10,7 +10,7 @@ To build this, you need to have devkitPPC installed. Instructions for doing so c
 ## Building
 To build, you must first add **DEVKITPPC** and **SMSTOOLS** to your environment. **DEVKITPPC** should be set to the `devkitPPC` folder, and **SMSTOOLS** should be set to the `sms-tools` folder. Then, navigate to the root directory of the repository (the folder with the makefile in it) and run `make`. Any combination of rules can be applied to this. You should also run `make clean` after making any changes, as files built with a previous build could cause issues.  
 
-It should be noted that there are two Japanese versions of the game, so each one is handled by a revision number in this project. Revision 0 (verion 1.0) is handled as `jp0`, and revision 1 (version 1.1) is handled as `jp1`.  
+It should be noted that there are two Japanese versions of the game, so each one is handled by a revision number in this project. Revision 0 (version 1.0) is handled as `jp0`, and revision 1 (version 1.1) is handled as `jp1`.  
 `make us`  
 `make jp0 eu`  
 `make us eu`  
