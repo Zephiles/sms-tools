@@ -7,6 +7,7 @@
 .set INTERNAL_FILENAME_LOCATION,0x800038CC
 .set gpCardManagerOffset,-0x603C
 .set gpCardManagerMemCardWorkAreaOffset,0x12C
+.set heapOffset,-0x5F28
 .set CARDProbeEx,0x803580A8
 .set CARDMount,0x803588DC
 .set CARDOpen,0x8035938C
@@ -59,7 +60,7 @@ lis r27,0x000F
 ori r27,r27,0x4240 # Check 1,000,000 times
 
 # Get the pointer to the Work Area for CARDMount to use
-lwz r26,gpCardManagerOffset@l(r13)
+lwz r26,gpCardManagerOffset(r13)
 lwz r26,gpCardManagerMemCardWorkAreaOffset(r26)
 
 mountMemoryCardLoop:
@@ -170,13 +171,13 @@ b closeCard
 freeMemory:
 ori r3,r30,free@l
 mtctr r3
-lwz r3,-0x5F30(r13) # Pointer to the heap to use - sSystemHeap
+lwz r3,heapOffset(r13) # Pointer to the heap to use - sRootHeap
 bctr
 
 allocateMemory:
 ori r3,r30,alloc@l
 mtctr r3
-lwz r3,-0x5F30(r13) # Pointer to the heap to use - sSystemHeap
+lwz r3,heapOffset(r13) # Pointer to the heap to use - sRootHeap
 li r5,0x20 # 0x20 allocates from Head, -0x20 allocates from Tail
 bctr
 
