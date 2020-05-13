@@ -17,23 +17,23 @@ export ELF2REL	:=	$(SMSTOOLS)/bin/elf2rel
 export GCIPACK	:=	python $(SMSTOOLS)/gcipack/gcipack.py
 
 ifeq ($(VERSION),)
-all: us
+all: us jp0 jp1 eu
 us:
 	@$(MAKE) --no-print-directory VERSION=us
-#jp0:
-#	@$(MAKE) --no-print-directory VERSION=jp0
-#jp1:
-#	@$(MAKE) --no-print-directory VERSION=jp1
-#eu:
-#	@$(MAKE) --no-print-directory VERSION=eu
+jp0:
+	@$(MAKE) --no-print-directory VERSION=jp0
+jp1:
+	@$(MAKE) --no-print-directory VERSION=jp1
+eu:
+	@$(MAKE) --no-print-directory VERSION=eu
 
 clean:
 	@$(MAKE) --no-print-directory clean_target VERSION=us
-#	@$(MAKE) --no-print-directory clean_target VERSION=jp0
-#	@$(MAKE) --no-print-directory clean_target VERSION=jp1
-#	@$(MAKE) --no-print-directory clean_target VERSION=eu
+	@$(MAKE) --no-print-directory clean_target VERSION=jp0
+	@$(MAKE) --no-print-directory clean_target VERSION=jp1
+	@$(MAKE) --no-print-directory clean_target VERSION=eu
 
-.PHONY: all clean us
+.PHONY: all clean us jp0 jp1 eu
 else
 
 #---------------------------------------------------------------------------------
@@ -69,12 +69,12 @@ else ifeq ($(VERSION),jp0)
 	CFLAGS += -DSMS_JP0
 	ASFLAGS += -DSMS_JP0
 	GAMECODE = "GMSJ"
-	PRINTVER = "JP v1.0"
+	PRINTVER = "JP_v1.0"
 else ifeq ($(VERSION),jp1)
 	CFLAGS += -DSMS_JP1
 	ASFLAGS += -DSMS_JP1
 	GAMECODE = "GMSJ"
-	PRINTVER = "JP 1.1"
+	PRINTVER = "JP_1.1"
 else ifeq ($(VERSION),eu)
 	CFLAGS += -DSMS_EU
 	ASFLAGS += -DSMS_EU
@@ -139,14 +139,17 @@ export LDFILES		:= $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.ld)))
 export MAPFILE		:= $(CURDIR)/include/sms.$(VERSION).lst
 ifeq ($(VERSION),us)
 	export BANNERFILE	:= $(CURDIR)/images/banner_us.raw
+	export ICONFILE		:= $(CURDIR)/images/icon_us.raw
 else ifeq ($(VERSION),jp0)
-	export BANNERFILE	:= $(CURDIR)/images/banner_jp.raw
+	export BANNERFILE	:= $(CURDIR)/images/banner_jp0.raw
+	export ICONFILE		:= $(CURDIR)/images/icon_jp0.raw
 else ifeq ($(VERSION),jp1)
-	export BANNERFILE	:= $(CURDIR)/images/banner_jp.raw
+	export BANNERFILE	:= $(CURDIR)/images/banner_jp1.raw
+	export ICONFILE		:= $(CURDIR)/images/icon_jp1.raw
 else ifeq ($(VERSION),eu)
-	export BANNERFILE	:= $(CURDIR)/images/banner_us.raw
+	export BANNERFILE	:= $(CURDIR)/images/banner_eu.raw
+	export ICONFILE		:= $(CURDIR)/images/icon_eu.raw
 endif
-export ICONFILE		:= $(CURDIR)/images/icon.raw
 
 #---------------------------------------------------------------------------------
 # build a list of include paths

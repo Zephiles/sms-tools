@@ -1,0 +1,1 @@
+For the Japanese GCT files, remove the _REV0 or _REV1 text from the file name.

@@ -22,6 +22,14 @@ void Mod::init()
 	
 #ifdef SMS_US
 	uint32_t runMainAddress = 0x802A5F98;
+#elif defined SMS_JP0
+	uint32_t runMainAddress = 0x800F999C;
+#elif defined SMS_JP1
+	uint32_t runMainAddress = 0x80285DF4;
+#elif defined SMS_EU
+	uint32_t runMainAddress = 0x8029DEA8;
+#else
+#error Unknown version used.
 #endif
 	
 	// Hook an arbitrary address in the game loop that runs exactly once per frame

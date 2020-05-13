@@ -1,0 +1,871 @@
+# Original code created by PistonMiner and Zephiles for Paper Mario: The Thousand-Year Door
+# Code ported to Super Mario Sunshine by Zephiles
+
+# 800FAA70 - Address to hook for this code
+
+# Set global function/variable/offset locations/values
+.set INTERNAL_FILENAME_LOCATION,0x800038CC
+.set gpCardManagerOffset,-0x680C
+.set gpCardManagerMemCardWorkAreaOffset,0x12C
+.set heapOffset,-0x7290
+.set CARDProbeEx,0x800A29C8
+.set CARDMount,0x800A31FC
+.set CARDOpen,0x800A3CAC
+.set CARDRead,0x800A4640
+.set memset,0x80003100
+.set DCFlushRange,0x8008DFAC
+.set ICInvalidateRange,0x8008E074
+.set free,0x8000A7D4
+.set alloc,0x8000A04C
+.set CARDClose,0x800A3E24
+.set CARDUnmount,0x800A32E0
+
+# Backup register values
+stwu sp,-0x20(sp)
+stmw r26,0x8(sp)
+
+# Initialize static values used for addresses
+lis r31,0x8000
+lis r30,0x800A
+
+li r29,0 # Used to check if a REL file is loaded or not
+
+# Check if a Memory Card is present
+# To avoid an infinite loop, only check for a memory card a set amount of times
+lis r28,0x000F
+ori r28,r28,0x4240 # Check 1,000,000 times
+
+checkForMemoryCardLoop:
+ori r3,r30,CARDProbeEx@l
+mtlr r3
+li r3,0 # Memory Card Slot A
+li r4,0 # Pointer to the Memory Size (Not needed, so NULL)
+li r5,0 # Pointer to the Sector Size (Not needed, so NULL)
+blrl
+cmpwi r3,-1 # CARD_RESULT_BUSY
+bne- exitCheckForMemoryCardLoop
+
+# Exit if the limit has been reached
+subic. r28,r28,1
+bgt+ checkForMemoryCardLoop
+
+exitCheckForMemoryCardLoop:
+cmpwi r3,0 # Check if something went wrong
+bne- exit
+
+# Mount the Memory Card
+# To avoid an infinite loop, only try to mount a set amount of times
+lis r28,0x000F
+ori r28,r28,0x4240 # Check 1,000,000 times
+
+# Get the pointer to the Work Area for CARDMount to use
+lwz r27,gpCardManagerOffset(r13)
+lwz r27,gpCardManagerMemCardWorkAreaOffset(r27)
+
+mountMemoryCardLoop:
+ori r3,r30,CARDMount@l
+mtlr r3
+li r3,0 # Memory Card Slot A
+mr r4,r27 # Pointer to the Work Area
+li r5,0 # Detach Callback function (Want to avoid using, so NULL)
+blrl
+cmpwi r3,-1 # CARD_RESULT_BUSY
+bne- exitMountMemoryCardLoop
+
+# Exit if the limit has been reached
+subic. r28,r28,1
+bgt+ mountMemoryCardLoop
+
+exitMountMemoryCardLoop:
+cmpwi r3,0 # Check if something went wrong
+bne- exit
+
+# Allocate memory for CardFileInfo
+li r4,20
+bl allocateMemory
+
+# Backup the returned address to be used for later
+mr r28,r3
+
+# Open the file
+ori r3,r30,CARDOpen@l
+mtlr r3
+li r3,0 # Memory Card Slot A
+ori r4,r31,INTERNAL_FILENAME_LOCATION@l
+mr r5,r28 # Pointer to CardFileInfo
+blrl
+cmpwi r3,0 # Check if something went wrong
+bne- freeCardFileInfo
+
+# Allocate 0x200 bytes of memory, as the read size must be in multiples of 0x200 bytes
+li r4,0x200 # Bytes to allocate
+bl allocateMemory
+
+# Backup the returned address to be used for later
+mr r26,r3
+
+# Read from the Card
+ori r3,r30,CARDRead@l
+mtlr r3
+mr r3,r28 # Pointer to CardFileInfo
+mr r4,r26 # Pointer to the File Buffer
+li r5,0x200 # Amount of bytes to read
+li r6,0x2000 # Offset in the file to start reading from
+blrl
+cmpwi r3,0 # Check if something went wrong
+bne- freeCurrentMemoryArea
+
+# Get the file size and adjust it to be in multiples of 0x200 bytes
+lwz r27,0x40(r26) # File Size
+addi r27,r27,511
+rlwinm r27,r27,0,0,22
+
+# Free the 0x200 bytes from earlier
+mr r4,r26
+bl freeMemory
+
+# Allocate more bytes based on the adjusted file size
+mr r4,r27
+bl allocateMemory
+
+# Backup the returned address to be used for later
+mr r26,r3
+
+# Read the REL Area of the file
+ori r3,r30,CARDRead@l
+mtlr r3
+mr r3,r28 # Pointer to CardFileInfo
+mr r4,r26 # Pointer to the File Buffer
+mr r5,r27 # Adjusted File Size
+li r6,0x2200 # Offset in the file to start reading from
+blrl
+cmpwi r3,0 # Check if something went wrong
+bne- freeCurrentMemoryArea
+
+# Get the BSS Area size and allocate memory for it
+lwz r4,0x20(r26)
+bl allocateMemory
+
+# Backup the returned address to be used for later
+mr r27,r3
+
+# Link the functions in the REL
+mr r3,r26 # Pointer to the Module
+mr r4,r27 # Pointer to the BSS Area
+bl linkRelFile
+cmpwi r3,1 # Check if something went wrong
+bne- freeRemainingMemory
+
+# Store the BSS Area and the Module
+stw r27,0x397C(r31) # Pointer to the BSS Area
+stw r26,0x3980(r31) # Pointer to the Module
+
+# Get the REL Prolog Pointer
+lwz r29,0x34(r26)
+
+# Done, so close and unmount the card
+b closeCard
+
+# Function definitions, error handling, etc.
+freeMemory:
+ori r3,r31,free@l
+mtctr r3
+lwz r3,heapOffset(r13) # Pointer to the heap to use - sRootHeap
+bctr
+
+allocateMemory:
+ori r3,r31,alloc@l
+mtctr r3
+lwz r3,heapOffset(r13) # Pointer to the heap to use - sRootHeap
+li r5,0x20 # 0x20 allocates from Head, -0x20 allocates from Tail
+bctr
+
+linkRelFile:
+mflr r0
+stw r0,0x4(sp)
+stwu sp,-0x28(sp)
+stmw r29,0x18(sp)
+mr r31,r3
+mr r30,r4
+
+li r0,0
+stb r0,0x33(r3)
+lwz r0,0x1C(r3)
+cmplwi r0,1
+li r3,0 # False
+bgt- exitLinkRelFile
+
+lis r3,0x8000
+addi r4,r3,12488
+lwzu r5,0x4(r4)
+cmplwi r5,0
+bne- 0xC
+stw r31,0x30C8(r3)
+b 0x8
+stw r31,0x4(r5)
+stw r5,0x8(r31)
+li r0,0
+stw r0,0x4 (r31)
+stw r31,0(r4)
+lwz r0,0x10(r31)
+add r0,r0,r31
+stw r0,0x10(r31)
+lwz r0,0x24(r31)
+add r0,r0,r31
+stw r0,0x24(r31)
+lwz r0,0x28(r31)
+add r0,r0,r31
+stw r0,0x28(r31)
+li r5,1
+li r3,8
+b linkRelFileLoopOneCheckStart
+
+linkRelFileLoopOneStart:
+lwz r0,0x10(r31)
+add r4,r0,r3
+lwz r0,0(r4)
+cmplwi r0,0
+beq- 0x10
+add r0,r0,r31
+stw r0,0(r4)
+b 0x18
+lwz r0,0x4(r4)
+cmplwi r0,0
+beq- 0xC
+stb r5,0x0033(r31)
+stw r30,0(r4)
+addi r3,r3,8
+addi r5,r5,1
+
+linkRelFileLoopOneCheckStart:
+lwz r0,0xC(r31)
+cmplw r5,r0
+blt+ linkRelFileLoopOneStart
+
+lwz r4,0x28(r31)
+b linkRelFileLoopTwoCheckStart
+
+linkRelFileLoopTwoStart:
+lwz r0,0x4(r4)
+add r0,r0,r31
+stw r0,0x4(r4)
+addi r4,r4,8
+
+linkRelFileLoopTwoCheckStart:
+lwz r3,0x28(r31)
+lwz r0,0x2C(r31)
+add r0,r3,r0
+cmplw r4,r0
+blt+ linkRelFileLoopTwoStart
+
+lbz r0,0x30(r31)
+cmplwi r0,0
+beq- linkRelFileNoSectionInfo0
+lwz r3,0x10(r31)
+rlwinm r0,r0,3,0,28
+lwz r4,0x34(r31)
+lwzx r0,r3,r0
+rlwinm r0,r0,0,0,30
+add r0,r4,r0
+stw r0,0x34(r31)
+
+linkRelFileNoSectionInfo0:
+lbz r0,0x31(r31)
+cmplwi r0,0
+beq- linkRelFileNoSectionInfo1
+lwz r3,0x10(r31)
+rlwinm r0,r0,3,0,28
+lwz r4,0x38(r31)
+lwzx r0,r3,r0
+rlwinm r0,r0,0,0,30
+add r0,r4,r0
+stw r0,0x38(r31)
+
+linkRelFileNoSectionInfo1:
+lbz r0,0x32(r31)
+cmplwi r0,0
+beq- linkRelFileNoSectionInfo2
+lwz r3,0x10(r31)
+rlwinm r0,r0,3,0,28
+lwz r4,0x3C(r31)
+lwzx r0,r3,r0
+rlwinm r0,r0,0,0,30
+add r0,r4,r0
+stw r0,0x3C(r31)
+
+linkRelFileNoSectionInfo2:
+lis r3,0x8000
+lwz r3,0x30D0(r3)
+cmplwi r3,0
+beq- 0x10
+lwz r0,0x0014 (r31)
+add r0,r0,r3
+stw r0,0x0014 (r31)
+li r3,0
+mr r4,r31
+bl relocateRelFile
+lis r3,0x8000
+lwz r29,0x30C8(r3)
+b linkRelFileRelocateLoopCheck
+
+linkRelFileRelocateLoop:
+mr r3,r31
+mr r4,r29
+bl relocateRelFile
+cmplw r29,r31
+beq- 0x10
+mr r3,r29
+mr r4,r31
+bl relocateRelFile
+lwz r29,0x4(r29)
+
+linkRelFileRelocateLoopCheck:
+cmplwi r29,0
+bne+ linkRelFileRelocateLoop
+
+lwz r5,0x20(r31)
+mr r3,r30
+li r4,0
+lis r6,memset@h
+ori r6,r6,memset@l
+mtlr r6
+blrl
+li r3,1 # True
+
+exitLinkRelFile:
+lwz r0,0x2C(sp)
+lmw r29,0x18(sp)
+addi sp,sp,0x28
+mtlr r0
+blr
+
+relocateRelFile:
+mflr r0
+stw r0,0x4(sp)
+stwu sp,-0x40(sp)
+stmw r23,0x1C(sp)
+
+mr. r26,r3
+mr r27,r4
+beq- 0xC
+lwz r31,0(r26)
+b 0x8
+li r31,0
+lwz r3,0x28(r27)
+lwz r0,0x2C(r27)
+mr r4,r3
+add r3,r3,r0
+addi r0,r3,7
+sub r0,r0,r4
+rlwinm r0,r0,29,3,31
+cmplw r4,r3
+mtctr r0
+bge- relocateRelFileErrorOccured
+
+relocateRelFileLoopOne:
+lwz r0,0(r4)
+cmplw r0,r31
+beq- relocateRelFileLoopOneDone
+addi r4,r4,8
+bdnz+ relocateRelFileLoopOne
+
+relocateRelFileErrorOccured:
+li r3,0 # False
+b exitRelocateRelFile
+
+relocateRelFileLoopOneDone:
+lwz r30,0x4(r4)
+li r29,0
+b relocateRelFileLoopTwoCheck
+
+relocateRelFileLoopTwo:
+lhz r0,0(r30)
+cmplwi r31,0
+add r28,r28,r0
+beq- 0x1C
+lbz r0,0x3(r30)
+lwz r3,0x10(r26)
+rlwinm r0,r0,3,0,28
+lwzx r0,r3,r0
+rlwinm r5,r0,0,0,30
+b 0x8
+li r5,0
+cmpwi r4,6
+beq- 0xC4
+bge- 0x30
+cmpwi r4,2
+beq- 0x68
+bge- 0x14
+cmpwi r4,0
+beq- relocateRelFileLoopTwoEnd
+bge- 0x48
+b relocateRelFileLoopTwoEnd
+cmpwi r4,4
+beq- 0x78
+bge- 0x84
+b 0x60
+cmpwi r4,201
+beq- relocateRelFileLoopTwoEnd
+bge- 0x1C
+cmpwi r4,10
+beq- 0xC8
+blt- 0xA8
+cmpwi r4,14
+bge- relocateRelFileLoopTwoEnd
+b 0xD8
+cmpwi r4,203
+bge- relocateRelFileLoopTwoEnd
+b 0xEC
+lwz r0,0x4(r30)
+add r0,r5,r0
+stw r0,0(r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+lwz r3,0(r28)
+add r0,r5,r0
+rlwinm r3,r3,0,30,5
+rlwimi r3,r0,0,6,29
+stw r3,0(r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+add r0,r5,r0
+sth r0,0(r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+add r0,r5,r0
+sth r0,0(r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+add r0,r5,r0
+rlwinm r0,r0,16,16,31
+sth r0,0 (r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+add r4,r5,r0
+rlwinm. r0,r4,0,16,16
+beq- 0xC
+li r3,1
+b 0x8
+li r3,0
+rlwinm r0,r4,16,16,31
+add r0,r0,r3
+sth r0,0(r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+lwz r3,0 (r28)
+add r0,r5,r0
+rlwinm r3,r3,0,30,15
+rlwimi r3,r0,0,16,29
+stw r3,0(r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+lwz r3,0(r28)
+add r0,r5,r0
+sub r0,r0,r28
+rlwinm r3,r3,0,30,5
+rlwimi r3,r0,0,6,29
+stw r3,0(r28)
+b relocateRelFileLoopTwoEnd
+lwz r0,0x4(r30)
+lwz r3,0(r28)
+add r0,r5,r0
+sub r0,r0,r28
+rlwinm r3,r3,0,30,15
+rlwimi r3,r0,0,16,29
+stw r3,0(r28)
+b relocateRelFileLoopTwoEnd
+lbz r0,0x3(r30)
+cmplwi r29,0
+lwz r3,0x10(r27)
+rlwinm r0,r0,3,0,28
+add r3,r3,r0
+lwz r0,0 (r3)
+mr r23,r3
+rlwinm r28,r0,0,0,30
+beq- 0x24
+lwz r0,0(r29)
+lwz r4,0x4(r29)
+rlwinm r24,r0,0,0,30
+mr r3,r24
+bl callDCFlushRange
+mr r3,r24
+lwz r4,0x4(r29)
+bl callICInvalidateRange
+lwz r0,0(r23)
+rlwinm. r0,r0,0,31,31
+beq- 0xC
+mr r0,r23
+b 0x8
+li r0,0
+mr r29,r0
+
+relocateRelFileLoopTwoEnd:
+addi r30,r30,8
+
+relocateRelFileLoopTwoCheck:
+lbz r4,0x2(r30)
+cmplwi r4,203
+bne+ relocateRelFileLoopTwo
+
+cmplwi r29,0
+beq- relocateRelFileExitTrue
+lwz r0,0(r29)
+lwz r4,0x4(r29)
+rlwinm r25,r0,0,0,30
+mr r3,r25
+bl callDCFlushRange
+mr r3,r25
+lwz r4,0x4(r29)
+bl callICInvalidateRange
+
+relocateRelFileExitTrue:
+li r3,1 # True
+
+exitRelocateRelFile:
+lmw r23,0x1C(sp)
+lwz r0,0x44(sp)
+addi sp,sp,0x40
+mtlr r0
+blr
+
+unlinkRelFile:
+mflr r0
+stw r0,0x4(sp)
+stwu sp,-0x18(sp)
+stmw r30,0x10(sp)
+mr r31,r3
+
+lwz r4,0x4(r3)
+lwz r5,0x8(r3)
+cmplwi r4,0
+bne- 0x10
+lis r3,0x8000
+stw r5,0x30CC(r3)
+b 0x8
+stw r5,0x8(r4)
+cmplwi r5,0
+bne- 0x10
+lis r3,0x8000
+stw r4,0x30C8(r3)
+b 0x8
+stw r4,0x4(r5)
+lis r3,0x8000
+lwz r30,0x30C8(r3)
+b unlinkRelFileLoopOneCheck
+
+unlinkRelFileLoopOne:
+mr r3,r31
+mr r4,r30
+bl undoLinkRelFile
+lwz r30,0x4(r30)
+
+unlinkRelFileLoopOneCheck:
+cmplwi r30,0
+bne+ unlinkRelFileLoopOne
+
+lis r3,0x8000
+lwz r3,0x30D0(r3)
+cmplwi r3,0
+beq- 0x10
+lwz r0,0x14(r31)
+sub r0,r0,r3
+stw r0,0x14(r31)
+lbz r0,0x30(r31)
+cmplwi r0,0
+beq- 0x20
+lwz r4,0x10(r31)
+rlwinm r3,r0,3,0,28
+lwz r0,0x34(r31)
+lwzx r3,r4,r3
+rlwinm r3,r3,0,0,30
+sub r0,r0,r3
+stw r0,0x34(r31)
+lbz r0,0x31(r31)
+cmplwi r0,0
+beq- 0x20
+lwz r4,0x10(r31)
+rlwinm r3,r0,3,0,28
+lwz r0,0x38(r31)
+lwzx r3,r4,r3
+rlwinm r3,r3,0,0,30
+sub r0,r0,r3
+stw r0,0x38(r31)
+lbz r0,0x32(r31)
+cmplwi r0,0
+beq- 0x20
+lwz r4,0x10(r31)
+rlwinm r3,r0,3,0,28
+lwz r0,0x3C(r31)
+lwzx r3,r4,r3
+rlwinm r3,r3,0,0,30
+sub r0,r0,r3
+stw r0,0x3C(r31)
+lwz r4,0x28(r31)
+b 0x14
+
+unlinkRelFileLoopTwo:
+lwz r0,0x4(r4)
+sub r0,r0,r31
+stw r0,0x4(r4)
+addi r4,r4,8
+lwz r3,0x28(r31)
+lwz r0,0x2C(r31)
+add r0,r3,r0
+cmplw r4,r0
+blt+ unlinkRelFileLoopTwo
+
+li r6,1
+li r5,8
+li r3,0
+b unlinkRelFileLoopThreeCheck
+
+unlinkRelFileLoopFour:
+lbz r0,0x33(r31)
+lwz r4,0x10(r31)
+cmplw r6,r0
+add r4,r4,r5
+bne- 0x10
+stb r3,0x33(r31)
+stw r3,0(r4)
+b unlinkRelFileLoopFourCheck
+lwz r0,0(r4)
+cmplwi r0,0
+beq- unlinkRelFileLoopFourCheck
+sub r0,r0,r31
+stw r0,0(r4)
+
+unlinkRelFileLoopFourCheck:
+addi r5,r5,8
+addi r6,r6,1
+
+unlinkRelFileLoopThreeCheck:
+lwz r0,0xC(r31)
+cmplw r6,r0
+blt+ unlinkRelFileLoopFour
+
+lwz r0,0x24(r31)
+li r3,1 # True
+sub r0,r0,r31
+stw r0,0x24(r31)
+lwz r0,0x28(r31)
+sub r0,r0,r31
+stw r0,0x28(r31)
+lwz r0,0x10(r31)
+sub r0,r0,r31
+stw r0,0x10(r31)
+
+lwz r0,0x1C(sp)
+lmw r30,0x10(sp)
+addi sp,sp,0x18
+mtlr r0
+blr
+
+undoLinkRelFile:
+mflr r0
+stw r0,0x4(sp)
+stwu sp,-0x38(sp)
+stmw r25,0x1C(sp)
+mr r28,r4
+
+lwz r4,0(r3)
+lwz r3,0x28(r28)
+lwz r0,0x2C(r28)
+mr r5,r3
+add r3,r3,r0
+addi r0,r3,7
+sub r0,r0,r5
+rlwinm r0,r0,29,3,31
+cmplw r5,r3
+mtctr r0
+bge- undoLinkRelFileErrorOccured
+
+undoLinkRelFileLoopOne:
+lwz r0,0(r5)
+cmplw r0,r4
+beq- undoLinkRelFileLoopOneDone
+addi r5,r5,8
+bdnz+ undoLinkRelFileLoopOne
+
+undoLinkRelFileErrorOccured:
+li r3,0 # False
+b exitUndoLinkRelFile
+
+undoLinkRelFileLoopOneDone:
+lwz r31,0x4(r5)
+li r30,0
+b undoLinkRelFileLoopTwoCheck
+
+undoLinkRelFileLoopTwo:
+lhz r0,0(r31)
+cmpwi r4,6
+li r3,0
+add r29,r29,r0
+beq- 0xA4
+bge- 0x30
+cmpwi r4,2
+beq- 0x64
+bge- 0x14
+cmpwi r4,0
+beq- undoLinkRelFileLoopTwoEnd
+bge- 0x48
+b undoLinkRelFileLoopTwoEnd
+cmpwi r4,4
+beq- 0x64
+bge- 0x6C
+b 0x50
+cmpwi r4,201
+beq- undoLinkRelFileLoopTwoEnd
+bge- 0x1C
+cmpwi r4,10
+beq- 0x7C
+blt- 0x68
+cmpwi r4,14
+bge- undoLinkRelFileLoopTwoEnd
+b 0x94
+cmpwi r4,203
+bge- undoLinkRelFileLoopTwoEnd
+b 0x98
+li r0,0
+stw r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+lwz r0,0(r29)
+rlwinm r0,r0,0,30,5
+stw r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+li r0,0
+sth r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+li r0,0
+sth r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+li r0,0
+sth r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+li r0,0
+sth r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+lwz r0,0(r29)
+rlwinm r0,r0,0,30,15
+stw r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+lbz r0,0x32(r28)
+cmplwi r0,0
+beq- 0xC
+lwz r0,0x3C(r28)
+sub r3,r0,r29
+lwz r0,0(r29)
+rlwinm r0,r0,0,30,5
+rlwimi r0,r3,0,6,29
+stw r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+lwz r0,0(r29)
+rlwinm r0,r0,0,30,15
+stw r0,0(r29)
+b undoLinkRelFileLoopTwoEnd
+lbz r0,0x3(r31)
+cmplwi r30,0
+lwz r3,0x10(r28)
+rlwinm r0,r0,3,0,28
+add r3,r3,r0
+lwz r0,0(r3)
+mr r26,r3
+rlwinm r29,r0,0,0,30
+beq- 0x24
+lwz r0,0(r30)
+lwz r4,0x4(r30)
+rlwinm r25,r0,0,0,30
+mr r3,r25
+bl callDCFlushRange
+mr r3,r25
+lwz r4,0x4(r30)
+bl callICInvalidateRange
+lwz r0,0(r26)
+rlwinm. r0,r0,0,31,31
+beq- 0xC
+mr r0,r26
+b 0x8
+li r0,0
+mr r30,r0
+
+undoLinkRelFileLoopTwoEnd:
+addi r31,r31,8
+
+undoLinkRelFileLoopTwoCheck:
+lbz r4,0x2(r31)
+cmplwi r4,203
+bne+ undoLinkRelFileLoopTwo
+
+cmplwi r30,0
+beq- undoLinkRelFileExitTrue
+lwz r0,0(r30)
+lwz r4,0x4(r30)
+rlwinm r27,r0,0,0,30
+mr r3,r27
+bl callDCFlushRange
+mr r3,r27
+lwz r4,0x4(r30)
+bl callICInvalidateRange
+
+undoLinkRelFileExitTrue:
+li r3,1 # True
+
+exitUndoLinkRelFile:
+lmw r25,0x1C(sp)
+lwz r0,0x3C(sp)
+addi sp,sp,0x38
+mtlr r0
+blr
+
+callDCFlushRange:
+lis r5,DCFlushRange@h
+ori r5,r5,DCFlushRange@l
+mtctr r5
+bctr
+
+callICInvalidateRange:
+lis r5,ICInvalidateRange@h
+ori r5,r5,ICInvalidateRange@l
+mtctr r5
+bctr
+
+freeRemainingMemory:
+mr r3,r26 # Pointer to the Module
+bl unlinkRelFile
+
+# Free the BSS Area and the File Buffer
+mr r4,r27 # Pointer to the BSS Area
+bl freeMemory
+
+freeCurrentMemoryArea:
+mr r4,r26 # Pointer to the File Buffer or the 0x200 Bytes Buffer
+bl freeMemory
+
+closeCard:
+ori r3,r30,CARDClose@l
+mtlr r3
+mr r3,r28 # Pointer to CardFileInfo
+blrl
+
+freeCardFileInfo:
+mr r4,r28
+bl freeMemory
+
+# Unmount the Memory Card
+ori r3,r30,CARDUnmount@l
+mtlr r3
+li r3,0 # Memory Card Slot A
+blrl
+
+# Run the REL Prolog if the load was successful
+cmpwi r29,0
+beq- exit
+mtlr r29
+blrl
+
+exit:
+# Restore register values
+lmw r26,0x8(sp)
+addi sp,sp,0x20
+
+# Add back in overwritten instruction
+lmw r27,0x14(sp)
