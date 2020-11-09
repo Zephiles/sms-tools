@@ -7,14 +7,14 @@ namespace mod {
 class Mod
 {
 public:
-	Mod();
-	void init();
+    Mod();
+    void init();
   
 private:
-	void runMain();
-	
+    void runMain();
+    
 private:
-	void (*mPFN_runMain_trampoline)() = nullptr;
+    void (*mPFN_runMain_trampoline)() = nullptr;
 };
 
 }
